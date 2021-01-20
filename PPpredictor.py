@@ -14,10 +14,16 @@ from sklearn.metrics import confusion_matrix
 from sklearn.metrics import accuracy_score
 from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import DecisionTreeRegressor
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import AdaBoostRegressor
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.naive_bayes import GaussianNB
+from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.svm import SVC
+from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
 from sklearn import preprocessing
 
@@ -83,7 +89,7 @@ X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=
 
 print('Target variable: SWT, Features: GR, LLD, DEN') 
 # SWT
-compareModels(X_train, Y_train)
+compareModels()#X_train, Y_train)
 
 
 
@@ -140,40 +146,57 @@ print('\nTarget variable: KLOG, Features: TVDSS, GR, LLD, NEUT, DEN')
 compareModels(X_train, Y_train)
 
 
-# %%
-model = GaussianNB()
-model.fit(X_train, Y_train)
-predictions = model.predict(X_validation)
-
-# Evaluate predictions
-print(accuracy_score(Y_validation, predictions))
-print(confusion_matrix(Y_validation, predictions))
-print(classification_report(Y_validation, predictions))
-
 
 
 #%%
-def compareModels(X_train, Y_train):
+def compareModels():#X_train, Y_train):
     # Spot Check Algorithms
     models = []
-    models.append(('LR', LogisticRegression(solver='liblinear', multi_class='ovr')))
+    models.append(('LR', LogisticRegression()))
     models.append(('LDA', LinearDiscriminantAnalysis()))
-    models.append(('KNN', KNeighborsClassifier()))
+    models.append(('KNNC', KNeighborsClassifier()))
+    models.append(('KNNR', KNeighborsRegressor()))
     models.append(('CART', DecisionTreeClassifier()))
+    models.append(('DTR', DecisionTreeRegressor()))
+    models.append(('ADAB', AdaBoostRegressor()))
     models.append(('NB', GaussianNB()))
-    models.append(('SVM', SVC(gamma='auto')))
-    #models.append(('MLPR', MLPRegressor(random_state=1)))
+    models.append(('SVC', SVC(gamma='auto')))
+    models.append(('GPR', GaussianProcessRegressor()))
+    models.append(('SVR', SVR(gamma='auto')))
+    models.append(('MLPR', MLPRegressor(random_state=1)))
     # evaluate each model in turn
     results = []
     names = []
+    mean_results = []
     for name, model in models:
         kfold = StratifiedKFold(n_splits=10, random_state=1, shuffle=True)
         cv_results = cross_val_score(model, X_train, Y_train, cv=kfold, scoring='accuracy') #cv=kfold
         results.append(cv_results)
         names.append(name)
+        mean_results.append(cv_results.mean())
         print('%s: %f (%f)' % (name, cv_results.mean(), cv_results.std()))
     
     plt.boxplot(results, labels=names)
     plt.title('Algorithm Comparison')
     plt.show()
 
+    bestModel = models[np.argmax(mean_results)][1]
+    print('\nBest model: %s' % (bestModel))
+    modelScore(bestModel)
+
+# %%
+def modelScore(model):
+
+    #model = GaussianNB()
+    model.fit(X_train, Y_train)
+    predictions = model.predict(X_validation)
+
+    # Evaluate predictions
+    try:
+        print('Accuracy score: %f' % (accuracy_score(Y_validation, predictions)))
+        #print(confusion_matrix(Y_validation, predictions))
+        print('Classification report: \n %s' % (classification_report(Y_validation, predictions)))
+    except:
+        print('R2: %f' % (model.score(X_train, Y_train)))
+        #print(confusion_matrix(Y_validation, predictions))
+        #print('Classification report: \n %s' % 

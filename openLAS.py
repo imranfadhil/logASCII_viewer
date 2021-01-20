@@ -83,7 +83,7 @@ X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=
 
 print('Target variable: SWT, Features: GR, LLD, DEN') 
 # SWT
-compareModels(X_train, Y_train)
+compareModels()#X_train, Y_train)
 
 
 
@@ -114,46 +114,34 @@ compareModels(X_train, Y_train)
 
 
 #%%
-dfc46c = dfc46[dfc46.PHIT_HC.notna()]
-PHIT_binned = pd.cut(dfc46c.iloc[:,10],10,retbins=True,labels=range(1,11))
+dfc46c = dfn46[dfn46.PHIT_HC.notna()]
+PHIT_binned = pd.cut(dfc46c.iloc[:,9],100,retbins=True,labels=range(1,101))
 dfc46c['PHIT_binned'] = PHIT_binned[0]
-X = dfc46c.iloc[:,[0,2,3,4,5,11]]
-y = dfc46c.iloc[:,11] # Target variable
+X = dfc46c.iloc[:,[0,1,2,3,4,10]]
+y = dfc46c.iloc[:,10] # Target variable
 
 X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
 
 print('\nTarget variable: PHIT, Features: TVDSS, GR, LLD, NEUT, DEN') 
-compareModels(X_train, Y_train)
+compareModels()#X_train, Y_train)
 
 
 
 #%%
-dfc46c = dfc46[dfc46.KLOG.notna()]
-KLOG_binned = pd.cut(dfc46c.iloc[:,9],1000,retbins=True,labels=range(1,1001))
+dfc46c = dfn46[dfn46.KLOG.notna()]
+KLOG_binned = pd.cut(dfc46c.iloc[:,8],1000,retbins=True,labels=range(1,1001))
 dfc46c['KLOG_binned'] = KLOG_binned[0]
-X = dfc46c.iloc[:,[0,2,3,4,5,11]]
-y = dfc46c.iloc[:,11] # Target variable
+X = dfc46c.iloc[:,[0,1,2,4,10]]
+y = dfc46c.iloc[:,10] # Target variable
 
 X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
 
 print('\nTarget variable: KLOG, Features: TVDSS, GR, LLD, NEUT, DEN') 
-compareModels(X_train, Y_train)
-
-
-# %%
-model = GaussianNB()
-model.fit(X_train, Y_train)
-predictions = model.predict(X_validation)
-
-# Evaluate predictions
-print(accuracy_score(Y_validation, predictions))
-print(confusion_matrix(Y_validation, predictions))
-print(classification_report(Y_validation, predictions))
-
+compareModels()#X_train, Y_train)
 
 
 #%%
-def compareModels(X_train, Y_train):
+def compareModels():#X_train, Y_train):
     # Spot Check Algorithms
     models = []
     models.append(('LR', LogisticRegression(solver='liblinear', multi_class='ovr')))
@@ -166,14 +154,52 @@ def compareModels(X_train, Y_train):
     # evaluate each model in turn
     results = []
     names = []
+    mean_results =[]
     for name, model in models:
         kfold = StratifiedKFold(n_splits=10, random_state=1, shuffle=True)
         cv_results = cross_val_score(model, X_train, Y_train, cv=kfold, scoring='accuracy') #cv=kfold
         results.append(cv_results)
         names.append(name)
+        mean_results.append(cv_results.mean())
         print('%s: %f (%f)' % (name, cv_results.mean(), cv_results.std()))
     
     plt.boxplot(results, labels=names)
     plt.title('Algorithm Comparison')
     plt.show()
 
+    bestModel = models[np.argmax(mean_results)][1]
+    print('\nBest model: %s' % (bestModel))
+    modelScore(bestModel)
+
+# %%
+def modelScore(model):
+
+    #model = GaussianNB()
+    model.fit(X_train, Y_train)
+    predictions = model.predict(X_validation)
+
+    # Evaluate predictions
+    print('Accuracy score: %f' % (accuracy_score(Y_validation, predictions)))
+    #print(confusion_matrix(Y_validation, predictions))
+    print('Classification report: \n %s' % (classification_report(Y_validation, predictions)))
+
+
+#%%
+def optimizeParameter():
+    return
+
+#%%
+def saveModel():
+    from sklearn.externals import joblib
+
+# Save to file in the current working directory
+joblib_file = "joblib_model.pkl"
+joblib.dump(model, joblib_file)
+
+# Load from file
+joblib_model = joblib.load(joblib_file)
+
+# Calculate the accuracy and predictions
+score = joblib_model.score(Xtest, Ytest)
+print("Test score: {0:.2f} %".format(100 * score))
+Ypredict = pickle_model.predict(Xtest)
