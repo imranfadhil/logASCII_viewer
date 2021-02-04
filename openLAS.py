@@ -3,203 +3,60 @@
 # %%
 import pandas as pd 
 import numpy as np 
-import sqlite3 as sql
 import seaborn as sn
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import cross_val_score
-from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import classification_report
-from sklearn.metrics import confusion_matrix
-from sklearn.metrics import accuracy_score
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.naive_bayes import GaussianNB
-from sklearn.svm import SVC
-from sklearn.neural_network import MLPRegressor
-from sklearn import preprocessing
+import dask.dataframe as dd
 
-# %%
-db = sql.connect('../data/combinedLAS_v1.db')
-
-# %%
-df = pd.read_sql('SELECT * FROM all_LAS', db)
-df.head()
-
-# %%
-dfc = pd.read_sql('SELECT TVDSS,WELLNAME,GR,LLD,NEUT,DEN,DT,SWT,FLUID,KLOG,PHIT_HC FROM all_LAS                         WHERE GR IS NOT NULL                            AND LLD IS NOT NULL                            AND NEUT IS NOT NULL                            AND DEN IS NOT NULL                            AND TVDSS IS NOT NULL', db)
-dfc.head()
-#dfc.to_sql('selected_LAS', db, if_exists='replace')
-
-# %%
-print('\nData grouped by WELLNAME')
-dfd = pd.read_sql('SELECT TVDSS,WELLNAME,GR,LLD,NEUT,DEN,DT,SWT,FLUID,KLOG,PHIT_HC FROM selected_LAS GROUP BY WELLNAME',db)
-dfd.head()
-
-# %%
-db.close()
-
-
-# %%
-print('Correlation for all wells')
-dfcorr = dfc.corr(method='spearman')
-sn.heatmap(dfcorr, annot=True)
-plt.show()
 #%%
-print('\nCorrelation for WELL-46')
-dfc46 = dfc[dfc['WELLNAME']=='WELL-46']
-corr46 = dfc46.corr(method='spearman')
-sn.heatmap(corr46,annot=True)
-plt.show()
+pd.set_option('display.max_rows', 500)
+pd.set_option('display.max_columns', 150)
+pd.set_option('display.width', 500)
 
 
 #%%
-# QC outliers and value range for the features
-
+# Dask 
+dfi = dd.read_parquet('../data/interpreted_LAS.pqt')
+dfc = dd.read_parquet('../data/cpi_LAS.pqt')
+dfr = dd.read_parquet('../data/RTC_LAS.pqt')
+dfl = dd.read_parquet('../data/LOGIC_LAS.pqt')
 
 #%%
-# Normalize data
-dfc46float = dfc46.drop('WELLNAME', axis=1)
-scaler = preprocessing.StandardScaler()
-dfn46 = pd.DataFrame(scaler.fit_transform(dfc46float))
-dfn46 = dfn46.rename(columns= {0:'TVDSS', 1:'GR', 2: 'LLD', 3: 'NEUT', 4:'DEN', 5:'DT', 6:'SWT', 7:'FLUID', 
-                        8: 'KLOG', 9: 'PHIT_HC'})
-dfn46.describe()
-corr46n = dfn46.corr()
-sn.heatmap(corr46n, annot=True)
-plt.show()
 
+dfr['DEPTH']=dfr['index']
+dfip = dfi.compute()
+dfrp = dfr.compute()
 
-# %%
-dfc46c = dfn46[dfn46.SWT.notna()]
-SWT_binned = pd.cut(dfc46c.iloc[:,6],100,retbins=True,labels=range(1,101))
-dfc46c['SWT_binned'] = SWT_binned[0]
-X = dfc46c.iloc[:,[1,2,4,10]]
-y = dfc46c.iloc[:,10] # Target variable
+coledit = ['TE-021S2', 'TE-030S3', 'TE-031S1','TE-021S1','TE-032S1','TE-028S3','TE-041S1']
+colnew = ['TE-021ST2', 'TE-030ST3', 'TE-031ST1','TE-021ST1','TE-032ST1','TE-028ST3','TE-041ST1']
+i=0
+for i in range(len(coledit)):
+    dfip['WELLNAME'] = np.where(dfip.WELLNAME==coledit[i],colnew[i],dfip['WELLNAME'])
+    dfrp['WELLNAME'] = np.where(dfrp.WELLNAME==coledit[i],colnew[i],dfrp['WELLNAME'])
+dfin = dd.from_pandas(dfip, npartitions=1)
+dfrn = dd.from_pandas(dfrp, npartitions=1)
 
-X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
-
-print('Target variable: SWT, Features: GR, LLD, DEN') 
-# SWT
-compareModels()#X_train, Y_train)
+dfm = dd.merge(dfin,dfc, on=['DEPTH','WELLNAME'], how='outer')
+dfm = dd.merge(dfm,dfrn, on=['DEPTH','WELLNAME'], how='outer')
+dd.to_parquet(dfm,'../data/merged_LAS_v1.pqt',write_metadata_file=False,overwrite=True)
 
 
 
 #%%
-dfc46c = dfc46[dfc46.SWT.notna()]
-SWT_binned = pd.cut(dfc46c.iloc[:,7],10,retbins=True,labels=range(1,11))
-dfc46c['SWT_binned'] = SWT_binned[0]
-X = dfc46c.iloc[:,[2,3,5,11]]
-y = dfc46c.iloc[:,11] # Target variable
+dflp = dfl.compute()
+dflp['WELLNAME']='TE-0'+dflp.WELLNAME.str.split('-').str[1]
+coledit = ['TE-021S2', 'TE-030S3', 'TE-031S1','TE-021S1','TE-032S1','TE-028S3','TE-041S1',
+        'TE-074S1', 'TE-01', 'TE-02', 'TE-03', 'TE-04', 'TE-05', 'TE-06',
+       'TE-07', 'TE-08', 'TE-09', 'TE-026S1', 'TE-028S3_TE', 'TE-030S1', 'TE-036S1',
+       'TE-051S2', 'TE-054S1', 'TE-056S1', 'TE-057S1', 'TE-071S1','TE-072_TEMANA_SADDLE', 'TE-073S']
+colnew = ['TE-021ST2', 'TE-030ST3', 'TE-031ST1','TE-021ST1','TE-032ST1','TE-028ST3','TE-041ST1',
+        'TE-074ST1', 'TE-001', 'TE-002', 'TE-003', 'TE-004', 'TE-005', 'TE-006',
+       'TE-007', 'TE-008', 'TE-009', 'TE-026ST1', 'TE-028ST3', 'TE-030ST1', 'TE-036ST1',
+       'TE-051ST2', 'TE-054ST1', 'TE-056ST1', 'TE-057ST1', 'TE-071ST1', 'TE-072', 'TE-073ST1']
+i=0
+for i in range(len(coledit)):
+    dflp['WELLNAME'] = np.where(dflp.WELLNAME==coledit[i],colnew[i],dflp['WELLNAME'])
+dfln = dd.from_pandas(dflp, npartitions=1)
 
-X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
-
-print('Target variable: SWT, Features: GR, LLD, DEN') 
-# SWT
-compareModels(X_train, Y_train)
-
-
-# %%
-dfc46c = dfc46[dfc46.FLUID.notna()]
-X = dfc46c.iloc[:,[2,3,5,8]]
-y = dfc46c.iloc[:,8] # Target variable
-
-X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
-
-print('Target variable: FLUID, Features: GR, LLD, DEN') 
-compareModels(X_train, Y_train)
-
-
-
-#%%
-dfc46c = dfn46[dfn46.PHIT_HC.notna()]
-PHIT_binned = pd.cut(dfc46c.iloc[:,9],100,retbins=True,labels=range(1,101))
-dfc46c['PHIT_binned'] = PHIT_binned[0]
-X = dfc46c.iloc[:,[0,1,2,3,4,10]]
-y = dfc46c.iloc[:,10] # Target variable
-
-X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
-
-print('\nTarget variable: PHIT, Features: TVDSS, GR, LLD, NEUT, DEN') 
-compareModels()#X_train, Y_train)
-
-
-
-#%%
-dfc46c = dfn46[dfn46.KLOG.notna()]
-KLOG_binned = pd.cut(dfc46c.iloc[:,8],1000,retbins=True,labels=range(1,1001))
-dfc46c['KLOG_binned'] = KLOG_binned[0]
-X = dfc46c.iloc[:,[0,1,2,4,10]]
-y = dfc46c.iloc[:,10] # Target variable
-
-X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
-
-print('\nTarget variable: KLOG, Features: TVDSS, GR, LLD, NEUT, DEN') 
-compareModels()#X_train, Y_train)
-
-
-#%%
-def compareModels():#X_train, Y_train):
-    # Spot Check Algorithms
-    models = []
-    models.append(('LR', LogisticRegression(solver='liblinear', multi_class='ovr')))
-    models.append(('LDA', LinearDiscriminantAnalysis()))
-    models.append(('KNN', KNeighborsClassifier()))
-    models.append(('CART', DecisionTreeClassifier()))
-    models.append(('NB', GaussianNB()))
-    models.append(('SVM', SVC(gamma='auto')))
-    #models.append(('MLPR', MLPRegressor(random_state=1)))
-    # evaluate each model in turn
-    results = []
-    names = []
-    mean_results =[]
-    for name, model in models:
-        kfold = StratifiedKFold(n_splits=10, random_state=1, shuffle=True)
-        cv_results = cross_val_score(model, X_train, Y_train, cv=kfold, scoring='accuracy') #cv=kfold
-        results.append(cv_results)
-        names.append(name)
-        mean_results.append(cv_results.mean())
-        print('%s: %f (%f)' % (name, cv_results.mean(), cv_results.std()))
-    
-    plt.boxplot(results, labels=names)
-    plt.title('Algorithm Comparison')
-    plt.show()
-
-    bestModel = models[np.argmax(mean_results)][1]
-    print('\nBest model: %s' % (bestModel))
-    modelScore(bestModel)
-
-# %%
-def modelScore(model):
-
-    #model = GaussianNB()
-    model.fit(X_train, Y_train)
-    predictions = model.predict(X_validation)
-
-    # Evaluate predictions
-    print('Accuracy score: %f' % (accuracy_score(Y_validation, predictions)))
-    #print(confusion_matrix(Y_validation, predictions))
-    print('Classification report: \n %s' % (classification_report(Y_validation, predictions)))
-
-
-#%%
-def optimizeParameter():
-    return
-
-#%%
-def saveModel():
-    from sklearn.externals import joblib
-
-# Save to file in the current working directory
-joblib_file = "joblib_model.pkl"
-joblib.dump(model, joblib_file)
-
-# Load from file
-joblib_model = joblib.load(joblib_file)
-
-# Calculate the accuracy and predictions
-score = joblib_model.score(Xtest, Ytest)
-print("Test score: {0:.2f} %".format(100 * score))
-Ypredict = pickle_model.predict(Xtest)
+dfm = dd.merge(dfin,dfln, on=['DEPTH','WELLNAME'], how='outer')
+dfm = dd.merge(dfm,dfrn, on=['DEPTH','WELLNAME'], how='outer')
+dd.to_parquet(dfm,'../data/merged_LAS.pqt',write_metadata_file=False,overwrite=True)

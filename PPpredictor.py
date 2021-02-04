@@ -3,167 +3,186 @@
 # %%
 import pandas as pd 
 import numpy as np 
-import sqlite3 as sql
 import seaborn as sn
 import matplotlib.pyplot as plt
+import missingno as msno
+#%%
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_validate
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import classification_report
-from sklearn.metrics import confusion_matrix
-from sklearn.metrics import accuracy_score
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import explained_variance_score 
+from sklearn.metrics import r2_score
 from sklearn.tree import DecisionTreeRegressor
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.ensemble import AdaBoostRegressor
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.naive_bayes import GaussianNB
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.svm import SVC
 from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
 from sklearn import preprocessing
-
-# %%
-db = sql.connect('../data/combinedLAS_v1.db')
-
-# %%
-df = pd.read_sql('SELECT * FROM all_LAS', db)
-df.head()
-
-# %%
-dfc = pd.read_sql('SELECT TVDSS,WELLNAME,GR,LLD,NEUT,DEN,DT,SWT,FLUID,KLOG,PHIT_HC FROM all_LAS                         WHERE GR IS NOT NULL                            AND LLD IS NOT NULL                            AND NEUT IS NOT NULL                            AND DEN IS NOT NULL                            AND TVDSS IS NOT NULL', db)
-dfc.head()
-#dfc.to_sql('selected_LAS', db, if_exists='replace')
-
-# %%
-print('\nData grouped by WELLNAME')
-dfd = pd.read_sql('SELECT TVDSS,WELLNAME,GR,LLD,NEUT,DEN,DT,SWT,FLUID,KLOG,PHIT_HC FROM selected_LAS GROUP BY WELLNAME',db)
-dfd.head()
-
-# %%
-db.close()
-
-
-# %%
-print('Correlation for all wells')
-dfcorr = dfc.corr(method='spearman')
-sn.heatmap(dfcorr, annot=True)
-plt.show()
-#%%
-print('\nCorrelation for WELL-46')
-dfc46 = dfc[dfc['WELLNAME']=='WELL-46']
-corr46 = dfc46.corr(method='spearman')
-sn.heatmap(corr46,annot=True)
-plt.show()
-
+from sklearn.model_selection import GridSearchCV
 
 #%%
-# QC outliers and value range for the features
-
+pd.set_option('display.max_rows', 500)
+pd.set_option('display.max_columns', 150)
+pd.set_option('display.width', 500)
 
 #%%
-# Normalize data
-dfc46float = dfc46.drop('WELLNAME', axis=1)
-scaler = preprocessing.StandardScaler()
-dfn46 = pd.DataFrame(scaler.fit_transform(dfc46float))
-dfn46 = dfn46.rename(columns= {0:'TVDSS', 1:'GR', 2: 'LLD', 3: 'NEUT', 4:'DEN', 5:'DT', 6:'SWT', 7:'FLUID', 
-                        8: 'KLOG', 9: 'PHIT_HC'})
-dfn46.describe()
-corr46n = dfn46.corr()
-sn.heatmap(corr46n, annot=True)
+df = pd.read_parquet('../data/merged_LAS_v1.pqt/part.0.parquet')
+df.tail()
+
+#%%
+""" # %%
+# Load selected features from SQL into dataframe
+dfs = pd.read_sql('SELECT TVDSS,WELLNAME,GR,RTC,NPHIC,RHOBC,SWT,FLUID,KLOG,PHIT_HC FROM all_LAS\
+                            WHERE GR IS NOT NULL\
+                            AND RTC IS NOT NULL\
+                            AND NPHIC IS NOT NULL\
+                            AND RHOBC IS NOT NULL\
+                            AND TVDSS IS NOT NULL\
+                            AND SWT IS NOT NULL\
+                            AND KLOG IS NOT NULL\
+                            AND PHIT_HC IS NOT NULL\
+                            AND FLUID IS NOT NULL', db)#, index_col='index')
+
+ #%%
+# Discard columns with more than 90% missing values
+cutoff = int(0.1*dfa.shape[0])
+dfa.dropna(axis=1,thresh=cutoff,inplace=True)
+ """
+
+#%%
+
+dfa=df
+print('\nMissing values (pct): \n %s' % round(dfa.isna().sum()/dfa.shape[0]*100,2).sort_values())
+
+# List missing data by Well
+print('\nNumber  of rows by well: ')
+g = dfa.groupby('WELLNAME')
+print(g.count().sum(axis=1).sort_values(ascending=False))
+
+#%%
+# Display matrix of missing data
+arranged =  round(dfa.isna().sum()/dfa.shape[0]*100,2).sort_values()
+dft = dfa[arranged.index]
+msno.matrix(dft[dft.WELLNAME=='TE-037'])
+#msno.matrix(dft)
+
+#%%
+dfa37 = dfa[dfa.WELLNAME=='TE-037']
+
+
+# %%
+# Comparing similar log types 
+fig, axs = plt.subplots(2,2, figsize=(10,10))
+
+dfres = dfa[['RTC','RT','RXO']]
+print('\n%s' % round(dfres.describe(),2))
+sn.heatmap(dfres.corr(),annot=True,fmt='.2f', ax=axs[0][0])
+
+""" dfnphi = dft[['NPHIC','NEUT','NPHI_COR',]]
+print('\n%s' %round(dfnphi.describe(),2))
+sn.heatmap(dfnphi.corr(),annot=True,fmt='.2f')
+"""
+dfrhob = dfa[['RHOB','RHOMAA']]
+print('\n%s' %round(dfrhob.describe(),2))
+sn.heatmap(dfrhob.corr(),annot=True,fmt='.2f',ax=axs[0][1])
+
+dfphit = dfa[['PHIE_HC','PHIT_HC','PHIT','PHIE']]
+print('\n%s' %round(dfphit.describe(),2))
+sn.heatmap(dfphit.corr(),annot=True,fmt='.2f', ax=axs[1][0])
+
+dfsw = dfa[['SWT','SWE','SWC','SXOE','SXOT']]
+print('\n%s' %round(dfsw.describe(),2))
+sn.heatmap(dfsw.corr(),annot=True,fmt='.2f', ax=axs[1][1])
+
 plt.show()
 
 
 # %%
-dfc46c = dfn46[dfn46.SWT.notna()]
-SWT_binned = pd.cut(dfc46c.iloc[:,6],100,retbins=True,labels=range(1,101))
-dfc46c['SWT_binned'] = SWT_binned[0]
-X = dfc46c.iloc[:,[1,2,4,10]]
-y = dfc46c.iloc[:,10] # Target variable
+plt.scatter(dfres.RTC,dfres.RT)
+plt.ylim(0,5000)
+plt.xlim(0,5000)
+
+#%%
+feat = ['WELLNAME','GR_COR','RT','NPHI_COR','RHOB','PHIT','PERM_CH','SWT','RT_RTC']
+dfs = dfa[feat]
+
+
+#%%
+# Normalize data and check correlation
+dfn = dfs.dropna()
+df_norm = (
+    dfn.groupby('WELLNAME')
+    .apply(SklearnWrapper(preprocessing.MinMaxScaler()))#StandardScaler()))
+    .drop("WELLNAME", axis=1)
+)
+df_norm['WELLNAME'] = dfn['WELLNAME']
+print(df_norm.columns)
+print(round(df_norm.describe(),2))
+
+print('\nCorrelation for all wells (normalized)')
+dfcorr = df_norm.corr(method='kendall')
+sn.heatmap(dfcorr, annot=True,fmt='.2f')
+plt.show()
+
+
+
+# %%
+print('Modelling regressors on SWT for Well-45')
+
+""" X = df_norm.iloc[:,0:5]
+y = df_norm.iloc[:,5] # Target variable """
+X = dfn45.iloc[:,0:5]
+y = dfn45.iloc[:,5] # Target variable
 
 X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
 
-print('Target variable: SWT, Features: GR, LLD, DEN') 
+print('Target variable: SWT, Features: TVDSS, GR, RTC, NPHIC, RHOBC') 
 # SWT
-compareModels()#X_train, Y_train)
-
-
-
-#%%
-dfc46c = dfc46[dfc46.SWT.notna()]
-SWT_binned = pd.cut(dfc46c.iloc[:,7],10,retbins=True,labels=range(1,11))
-dfc46c['SWT_binned'] = SWT_binned[0]
-X = dfc46c.iloc[:,[2,3,5,11]]
-y = dfc46c.iloc[:,11] # Target variable
-
-X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
-
-print('Target variable: SWT, Features: GR, LLD, DEN') 
-# SWT
-compareModels(X_train, Y_train)
-
-
-# %%
-dfc46c = dfc46[dfc46.FLUID.notna()]
-X = dfc46c.iloc[:,[2,3,5,8]]
-y = dfc46c.iloc[:,8] # Target variable
-
-X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
-
-print('Target variable: FLUID, Features: GR, LLD, DEN') 
-compareModels(X_train, Y_train)
-
+compareRModels()
 
 
 #%%
-dfc46c = dfc46[dfc46.PHIT_HC.notna()]
-PHIT_binned = pd.cut(dfc46c.iloc[:,10],10,retbins=True,labels=range(1,11))
-dfc46c['PHIT_binned'] = PHIT_binned[0]
-X = dfc46c.iloc[:,[0,2,3,4,5,11]]
-y = dfc46c.iloc[:,11] # Target variable
-
-X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
-
-print('\nTarget variable: PHIT, Features: TVDSS, GR, LLD, NEUT, DEN') 
-compareModels(X_train, Y_train)
-
-
+# Tuning SVR parameters for estimator
+param = {'kernel':('poly', 'sigmoid','rbf'), 'C':[1, 2, 3]}
+GS_CV = GridSearchCV(SVR(),param)
+GS_CV.fit(X_train, Y_train)
+print(GS_CV.get_params())
+#est.predict(X_validation)
+print(GS_CV.score(X_validation,Y_validation))
+print(GS_CV.best_params_)
 
 #%%
-dfc46c = dfc46[dfc46.KLOG.notna()]
-KLOG_binned = pd.cut(dfc46c.iloc[:,9],1000,retbins=True,labels=range(1,1001))
-dfc46c['KLOG_binned'] = KLOG_binned[0]
-X = dfc46c.iloc[:,[0,2,3,4,5,11]]
-y = dfc46c.iloc[:,11] # Target variable
-
-X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
-
-print('\nTarget variable: KLOG, Features: TVDSS, GR, LLD, NEUT, DEN') 
-compareModels(X_train, Y_train)
+est = SVR(C=3,kernel='poly')
+est.fit(X_train, Y_train)
+est.score(X_validation,Y_validation)
 
 
 
 
 #%%
-def compareModels():#X_train, Y_train):
+def dataQC(df):
+# Data QC
+    print('Dataframe shape: %d, %d' % df.shape)
+    print('\nMissing values, (pct): \n %s' % round(df.isna().sum()/df.shape[0]*100,2).sort_values())
+    print('\nDescribe(); \n %s' % round(df.describe(include='all'),2))
+    print('\nKurtosis(); \n %s' % round(df.kurt()))
+    print('\nSkew(); \n %s' % round(df.skew()))
+    df.hist(figsize=(10,10), bins=20)
+
+def compareCModels():#X_train, Y_train):
     # Spot Check Algorithms
     models = []
     models.append(('LR', LogisticRegression()))
     models.append(('LDA', LinearDiscriminantAnalysis()))
-    models.append(('KNNC', KNeighborsClassifier()))
-    models.append(('KNNR', KNeighborsRegressor()))
-    models.append(('CART', DecisionTreeClassifier()))
-    models.append(('DTR', DecisionTreeRegressor()))
-    models.append(('ADAB', AdaBoostRegressor()))
-    models.append(('NB', GaussianNB()))
-    models.append(('SVC', SVC(gamma='auto')))
-    models.append(('GPR', GaussianProcessRegressor()))
-    models.append(('SVR', SVR(gamma='auto')))
-    models.append(('MLPR', MLPRegressor(random_state=1)))
+    models.append(('KNNC', KNeighborsClassifier()))    
+    models.append(('CART', DecisionTreeClassifier()))    
+    models.append(('NB', GaussianNB()))        
+    models.append(('SVC', SVC(gamma='auto')))   
     # evaluate each model in turn
     results = []
     names = []
@@ -180,13 +199,41 @@ def compareModels():#X_train, Y_train):
     plt.title('Algorithm Comparison')
     plt.show()
 
-    bestModel = models[np.argmax(mean_results)][1]
+    bestModel = models[np.nanargmax(mean_results)][1]
+    print('\nBest model: %s' % (bestModel))
+    modelScore(bestModel)
+    return bestModel
+
+def compareRModels():#X_train, Y_train):
+    # Spot Check Algorithms
+    models = []    
+    models.append(('KNNR', KNeighborsRegressor()))    
+    models.append(('DTR', DecisionTreeRegressor()))
+    models.append(('ADAB', AdaBoostRegressor()))       
+    models.append(('GPR', GaussianProcessRegressor()))    
+    #models.append(('SVR', SVR(gamma='auto')))
+    models.append(('MLPR', MLPRegressor(random_state=1)))
+    # evaluate each model in turn
+    results = []
+    names = []
+    mean_results = []
+    for name, model in models:
+        cv_results = cross_val_score(model, X_train, Y_train, scoring='r2')
+        results.append(cv_results)
+        names.append(name)
+        mean_results.append(cv_results.mean())
+        print('%s: %f (%f)' % (name, cv_results.mean(), cv_results.std()))
+    
+    plt.boxplot(results, labels=names)
+    plt.title('Algorithm Comparison')
+    plt.show()
+
+    bestModel = models[np.nanargmax(mean_results)][1]
     print('\nBest model: %s' % (bestModel))
     modelScore(bestModel)
 
-# %%
-def modelScore(model):
 
+def modelScore(model):
     #model = GaussianNB()
     model.fit(X_train, Y_train)
     predictions = model.predict(X_validation)
@@ -200,3 +247,12 @@ def modelScore(model):
         print('R2: %f' % (model.score(X_train, Y_train)))
         #print(confusion_matrix(Y_validation, predictions))
         #print('Classification report: \n %s' % 
+
+import typing
+class SklearnWrapper:
+    def __init__(self, transform: typing.Callable):
+        self.transform = transform
+
+    def __call__(self, df):
+        transformed = self.transform.fit_transform(df.values)
+        return pd.DataFrame(transformed, columns=df.columns, index=df.index)

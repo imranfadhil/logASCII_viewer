@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 from tkinter import filedialog
 from tkinter import *
-import sqlite3
+import sqlite3 as sql
 
 # Using tkinter filedialog to select multiple LAS files for the combination process
 root = Tk()
@@ -27,19 +27,19 @@ for i in filename:
         df = las.df()        
         nullValue = las.well.NULL['value']
         df = df.where(df != nullValue,np.nan)
-        df.insert(0,'WELLNAME','WELL-'+str(num)) #las.well.WELL['value'])
+        df.insert(0,'WELLNAME', las.well.WELL['value'])#'WELL-'+str(num)) #
         dfc = dfc.append(df) 
         print('Reading {}'.format(i))
         num = num + 1
     except:
         print('Problem opening the file {}'.format(i))    
 dfc.reset_index(inplace=True)
+print('\n ...Finish reading %d LAS files...\n' % num)
 
 
-db = sqlite3.connect('combinedLAS.db')
-dfc.to_sql('all_LAS', db, if_exists='replace')
+""" db = sql.connect('../data/combinedLAS_v3.db')
+dfc.to_sql('RTC_LAS', db, if_exists='replace')
 
-db.close()
+db.close() """
 
-
-
+#dfc.to_parquet('../data/LOGIC_LAS.pqt')
