@@ -6,15 +6,10 @@ import numpy as np
 import seaborn as sn
 import matplotlib.pyplot as plt
 import missingno as msno
-#%%
+
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
-from sklearn.model_selection import cross_validate
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import mean_squared_error
-from sklearn.metrics import mean_absolute_error
-from sklearn.metrics import explained_variance_score 
-from sklearn.metrics import r2_score
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.ensemble import RandomForestRegressor
@@ -30,29 +25,57 @@ pd.set_option('display.max_rows', 500)
 pd.set_option('display.max_columns', 150)
 pd.set_option('display.width', 500)
 
+def dataQC(df):
+# Data QC
+    print('Dataframe shape: %d, %d' % df.shape)
+    print('\nMissing values, (pct): \n %s' % round(df.isna().sum()/df.shape[0]*100,2).sort_values())
+    print('\nDescribe(); \n %s' % round(df.describe(include='all'),2))
+    print('\nKurtosis(); \n %s' % round(df.kurt()))
+    print('\nSkew(); \n %s' % round(df.skew()))
+    df.hist(figsize=(10,10), bins=20)
+
+def compareRModels():#X_train, Y_train):
+    # Spot Check Algorithms
+    models = []    
+    models.append(('KNNR', KNeighborsRegressor()))    
+    models.append(('DTR', DecisionTreeRegressor()))
+    models.append(('ADAB', AdaBoostRegressor()))       
+    models.append(('GPR', GaussianProcessRegressor()))    
+    models.append(('SVR', SVR()))
+    models.append(('MLPR', MLPRegressor(random_state=1)))
+    # evaluate each model in turn
+    results = []
+    names = []
+    mean_results = []
+    for name, model in models:
+        print('Processing %s '%name)
+        cv_results = cross_val_score(model, X_train, Y_train, scoring='r2')
+        results.append(cv_results)
+        names.append(name)
+        mean_results.append(cv_results.mean())
+        print('Mean score: %f (std: %f)\n' % (cv_results.mean(), cv_results.std()))
+    
+    plt.boxplot(results, labels=names)
+    plt.title('Algorithm Comparison')
+    plt.show()
+
+    bestModel = models[np.nanargmax(mean_results)][1]
+    print('\nBest model: %s' % (bestModel))
+
+
+import typing
+class SklearnWrapper:
+    def __init__(self, transform: typing.Callable):
+        self.transform = transform
+
+    def __call__(self, df):
+        transformed = self.transform.fit_transform(df)
+        return pd.DataFrame(transformed, columns=df.columns, index=df.index) 
+
 #%%
 df = pd.read_parquet('../data/merged_LAS_v1.pqt/part.0.parquet')
+print(df.shape)
 df.tail()
-
-#%%
-""" # %%
-# Load selected features from SQL into dataframe
-dfs = pd.read_sql('SELECT TVDSS,WELLNAME,GR,RTC,NPHIC,RHOBC,SWT,FLUID,KLOG,PHIT_HC FROM all_LAS\
-                            WHERE GR IS NOT NULL\
-                            AND RTC IS NOT NULL\
-                            AND NPHIC IS NOT NULL\
-                            AND RHOBC IS NOT NULL\
-                            AND TVDSS IS NOT NULL\
-                            AND SWT IS NOT NULL\
-                            AND KLOG IS NOT NULL\
-                            AND PHIT_HC IS NOT NULL\
-                            AND FLUID IS NOT NULL', db)#, index_col='index')
-
- #%%
-# Discard columns with more than 90% missing values
-cutoff = int(0.1*dfa.shape[0])
-dfa.dropna(axis=1,thresh=cutoff,inplace=True)
- """
 
 #%%
 
@@ -69,10 +92,9 @@ print(g.count().sum(axis=1).sort_values(ascending=False))
 arranged =  round(dfa.isna().sum()/dfa.shape[0]*100,2).sort_values()
 dft = dfa[arranged.index]
 msno.matrix(dft[dft.WELLNAME=='TE-037'])
-#msno.matrix(dft)
-
-#%%
-dfa37 = dfa[dfa.WELLNAME=='TE-037']
+msno.matrix(dft[dft.WELLNAME=='TE-012'])
+msno.matrix(dft[dft.WELLNAME=='TE-072'])
+msno.matrix(dft[dft.WELLNAME=='TE-054ST1'])
 
 
 # %%
@@ -103,55 +125,66 @@ plt.show()
 
 
 # %%
-plt.scatter(dfres.RTC,dfres.RT)
-plt.ylim(0,5000)
-plt.xlim(0,5000)
+# well with most data
+print(dfa.dropna().groupby('WELLNAME').count().sum(axis=1).sort_values())
+# Check target variable std
+# Does smaller std causes less robustness?
+dfa.dropna().groupby('WELLNAME').apply(lambda x: x.PERM_CH.std()).sort_values()
+
 
 #%%
-feat = ['WELLNAME','GR_COR','RT','NPHI_COR','RHOB','PHIT','PERM_CH','SWT','RT_RTC']
-dfs = dfa[feat]
-
+feat = ['WELLNAME','GR_COR','RT','NPHI_COR','RHOB','PHIT','PERM_CH','SWT','RT_RTC',
+'VWATER','VGAS','VOIL','VSHALE','VSAND','VSILT','COAL','FACIES']
+dfs = dfa[dfa.WELLNAME=='TE-027'][feat].dropna()
+print('Well %s %s'%(dfs.WELLNAME.iloc[0],dfs.shape))
+dfs.describe(include='all')
 
 #%%
 # Normalize data and check correlation
-dfn = dfs.dropna()
-df_norm = (
-    dfn.groupby('WELLNAME')
-    .apply(SklearnWrapper(preprocessing.MinMaxScaler()))#StandardScaler()))
-    .drop("WELLNAME", axis=1)
+df_norm = (dfs.groupby(['WELLNAME'])[feat[1:]]
+    .apply(SklearnWrapper(preprocessing.MinMaxScaler()))#MinMaxScaler()))#StandardScaler()))
 )
-df_norm['WELLNAME'] = dfn['WELLNAME']
-print(df_norm.columns)
-print(round(df_norm.describe(),2))
+df_norm['WELLNAME'] = dfs['WELLNAME']
 
-print('\nCorrelation for all wells (normalized)')
+print('\nCorrelation (normalized data)')
 dfcorr = df_norm.corr(method='kendall')
+fig = plt.figure(figsize=(15,15))
 sn.heatmap(dfcorr, annot=True,fmt='.2f')
-plt.show()
-
 
 
 # %%
-print('Modelling regressors on SWT for Well-45')
+X = df_norm[feat[1:5]]
+y = df_norm['SWT']
+X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.40, random_state=1)
+X_train2, X_test, Y_train2, Y_test = train_test_split(X_validation, Y_validation, test_size=0.30, random_state=1)
 
-""" X = df_norm.iloc[:,0:5]
-y = df_norm.iloc[:,5] # Target variable """
-X = dfn45.iloc[:,0:5]
-y = dfn45.iloc[:,5] # Target variable
+# compareRModels()
+# model = KNeighborsRegressor().fit(X_train,Y_train)   
+# model = DecisionTreeRegressor().fit(X_train,Y_train)
+# model = AdaBoostRegressor().fit(X_train,Y_train)
+# model = GaussianProcessRegressor().fit(X_train,Y_train)
+# model = SVR().fit(X_train,Y_train)
+model = MLPRegressor().fit(X_train,Y_train)
+print('Running %s on %s'%(model,y.name))
+print('Model score  : %s'%model.score(X_train,Y_train))
+print('Test score   : %s'%model.score(X_train2,Y_train2))
+y_pred = model.predict(X_test)
 
-X_train, X_validation, Y_train, Y_validation = train_test_split(X, y, test_size=0.20, random_state=1)
+fig1, axs = plt.subplots(2,1,figsize=(10,10))
+axs[0].set_title('%s Test vs Prediction'%y.name)
+axs[0].plot(Y_test.index, Y_test, 'ro')
+axs[0].plot(Y_test.index, y_pred, 'g+')
+axs[1].scatter(Y_test,y_pred)
 
-print('Target variable: SWT, Features: TVDSS, GR, RTC, NPHIC, RHOBC') 
-# SWT
-compareRModels()
+
 
 
 #%%
-# Tuning SVR parameters for estimator
-param = {'kernel':('poly', 'sigmoid','rbf'), 'C':[1, 2, 3]}
-GS_CV = GridSearchCV(SVR(),param)
+# Tuning MLPR parameters for estimator
+param = {'alpha':[.00001, .0001, .001], 'activation': ['identity', 'tanh', 'relu']}
+GS_CV = GridSearchCV(MLPRegressor(),param)
 GS_CV.fit(X_train, Y_train)
-print(GS_CV.get_params())
+#print(GS_CV.get_params())
 #est.predict(X_validation)
 print(GS_CV.score(X_validation,Y_validation))
 print(GS_CV.best_params_)
@@ -160,99 +193,3 @@ print(GS_CV.best_params_)
 est = SVR(C=3,kernel='poly')
 est.fit(X_train, Y_train)
 est.score(X_validation,Y_validation)
-
-
-
-
-#%%
-def dataQC(df):
-# Data QC
-    print('Dataframe shape: %d, %d' % df.shape)
-    print('\nMissing values, (pct): \n %s' % round(df.isna().sum()/df.shape[0]*100,2).sort_values())
-    print('\nDescribe(); \n %s' % round(df.describe(include='all'),2))
-    print('\nKurtosis(); \n %s' % round(df.kurt()))
-    print('\nSkew(); \n %s' % round(df.skew()))
-    df.hist(figsize=(10,10), bins=20)
-
-def compareCModels():#X_train, Y_train):
-    # Spot Check Algorithms
-    models = []
-    models.append(('LR', LogisticRegression()))
-    models.append(('LDA', LinearDiscriminantAnalysis()))
-    models.append(('KNNC', KNeighborsClassifier()))    
-    models.append(('CART', DecisionTreeClassifier()))    
-    models.append(('NB', GaussianNB()))        
-    models.append(('SVC', SVC(gamma='auto')))   
-    # evaluate each model in turn
-    results = []
-    names = []
-    mean_results = []
-    for name, model in models:
-        kfold = StratifiedKFold(n_splits=10, random_state=1, shuffle=True)
-        cv_results = cross_val_score(model, X_train, Y_train, cv=kfold, scoring='accuracy') #cv=kfold
-        results.append(cv_results)
-        names.append(name)
-        mean_results.append(cv_results.mean())
-        print('%s: %f (%f)' % (name, cv_results.mean(), cv_results.std()))
-    
-    plt.boxplot(results, labels=names)
-    plt.title('Algorithm Comparison')
-    plt.show()
-
-    bestModel = models[np.nanargmax(mean_results)][1]
-    print('\nBest model: %s' % (bestModel))
-    modelScore(bestModel)
-    return bestModel
-
-def compareRModels():#X_train, Y_train):
-    # Spot Check Algorithms
-    models = []    
-    models.append(('KNNR', KNeighborsRegressor()))    
-    models.append(('DTR', DecisionTreeRegressor()))
-    models.append(('ADAB', AdaBoostRegressor()))       
-    models.append(('GPR', GaussianProcessRegressor()))    
-    #models.append(('SVR', SVR(gamma='auto')))
-    models.append(('MLPR', MLPRegressor(random_state=1)))
-    # evaluate each model in turn
-    results = []
-    names = []
-    mean_results = []
-    for name, model in models:
-        cv_results = cross_val_score(model, X_train, Y_train, scoring='r2')
-        results.append(cv_results)
-        names.append(name)
-        mean_results.append(cv_results.mean())
-        print('%s: %f (%f)' % (name, cv_results.mean(), cv_results.std()))
-    
-    plt.boxplot(results, labels=names)
-    plt.title('Algorithm Comparison')
-    plt.show()
-
-    bestModel = models[np.nanargmax(mean_results)][1]
-    print('\nBest model: %s' % (bestModel))
-    modelScore(bestModel)
-
-
-def modelScore(model):
-    #model = GaussianNB()
-    model.fit(X_train, Y_train)
-    predictions = model.predict(X_validation)
-
-    # Evaluate predictions
-    try:
-        print('Accuracy score: %f' % (accuracy_score(Y_validation, predictions)))
-        #print(confusion_matrix(Y_validation, predictions))
-        print('Classification report: \n %s' % (classification_report(Y_validation, predictions)))
-    except:
-        print('R2: %f' % (model.score(X_train, Y_train)))
-        #print(confusion_matrix(Y_validation, predictions))
-        #print('Classification report: \n %s' % 
-
-import typing
-class SklearnWrapper:
-    def __init__(self, transform: typing.Callable):
-        self.transform = transform
-
-    def __call__(self, df):
-        transformed = self.transform.fit_transform(df.values)
-        return pd.DataFrame(transformed, columns=df.columns, index=df.index)
