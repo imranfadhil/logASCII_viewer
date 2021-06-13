@@ -1,1 +1,4 @@
 logASCII_viewer_python
+.vscode
+.ipynb*
+*.bat
