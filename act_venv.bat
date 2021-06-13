@@ -1,1 +1,0 @@
-logASCII_viewer_python\Scripts\activate
