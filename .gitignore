@@ -1,1 +1,6 @@
 logASCII_viewer_python
+.vscode
+.ipynb*
+*.bat
+venv**
+**/__pycache__/

@@ -7,9 +7,7 @@ Created on Thu Dec 24 15:35:42 2020
 import lasio
 import pandas as pd
 import numpy as np
-from tkinter import filedialog
-from tkinter import *
-import streamlit as st
+from tkinter import filedialog, Tk
 from io import StringIO
 
 
@@ -31,26 +29,26 @@ def read_las_file(las_file, unit='metric'):
         df = df.where(df != nullValue, np.nan)
 
         wellname = las.well.WELL['value']
-        df.insert(0, 'WELLNAME', wellname)   
+        df.insert(0, 'WELLNAME', wellname)
 
         fieldname = las.well.FLD['value']
-        if fieldname is not '':
+        if fieldname != '':
             df.insert(0, 'FIELDNAME', fieldname)
         else:
             fieldname = wellname.split('-')[0]
             df.insert(0, 'FIELDNAME', fieldname)
-        
-        merged_data = merged_data.append(df)
 
-        well_dict = [{x:las.well[x]['value'] for x in las.well.keys()}]
-        well_header = pd.DataFrame(well_dict)        
-        
-        header_data = header_data.append(well_header)
-    
+        merged_data = pd.concat([merged_data, df])
+
+        well_dict = [{x: las.well[x]['value'] for x in las.well.keys()}]
+        well_header = pd.DataFrame(well_dict)
+
+        header_data = pd.concat([header_data, well_header])
+
     header_data_cols = header_data.columns
     header_data = header_data.transpose()
-    header_data.rename({0:wellname}, axis=1, inplace=True)
-    header_data.rename({x:v for x,v in enumerate(header_data_cols)}, axis=0, inplace=True)
+    header_data.rename({0: wellname}, axis=1, inplace=True)
+    header_data.rename({x: v for x, v in enumerate(header_data_cols)}, axis=0, inplace=True)
 
     merged_data.reset_index(inplace=True, drop=True)
     return merged_data, header_data
@@ -75,11 +73,12 @@ if __name__ == '__main__':
             df = df.where(df != nullValue, np.nan)
             # 'WELL-'+str(num)) #
             df.insert(0, 'WELLNAME', las.well.WELL['value'])
-            dfc = dfc.append(df)
+            dfc = pd.concat([dfc, df])
             print('Reading {}'.format(i))
             num = num + 1
-        except:
-            print('Problem opening the file {}'.format(i))
+        except Exception as e:
+            print(f'Problem opening the file {i} | {e}')
+
     dfc.reset_index(inplace=True)
     print('\n ...Finish reading %d LAS files...\n' % num)
 
